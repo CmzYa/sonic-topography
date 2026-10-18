@@ -35,6 +35,11 @@ export const themeIds = [
 
 export type ThemeId = typeof themeIds[number];
 
+/* 浅色模式常量：天空浅灰蓝，柱子基色白色系，保留少量灰度维持立体感 */
+export const lightSkyColor = new THREE.Color(0.88, 0.90, 0.94);
+export const lightBaseColor1 = new THREE.Color(1.0, 1.0, 1.0);
+export const lightBaseColor2 = new THREE.Color(0.93, 0.94, 0.96);
+
 /* 混合两个主题，t 为 0-1 之间的插值因子 */
 export function lerpThemes(theme1: ThemeColors, theme2: ThemeColors, t: number): ThemeColors {
   const clampedT = Math.max(0, Math.min(1, t));

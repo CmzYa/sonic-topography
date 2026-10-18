@@ -20,7 +20,12 @@ export const MapShaderMaterial = shaderMaterial(
     uSpectralCentroid: 0,
     uEnergy: 0,
     uIdleWave: 0,
-    uAudioIntensity: 1.0,
+    // 各响应通道的独立强度，0 表示该响应关闭
+    uCentralIntensity: 1.0,
+    uRingIntensity: 1.0,
+    uFlowIntensity: 1.0,
+    uRiverIntensity: 1.0,
+    uSpikeIntensity: 1.0,
     uResponseRange: 1.0,
     uHalfExtent: 84,
     uRipples: new Array(20).fill({
@@ -41,12 +46,17 @@ export const MapShaderMaterial = shaderMaterial(
     uGlowIntensity: 1.0,
     uPeakEnabled: 1.0, // 强调色开关 (0=关闭, 1=开启)
     uPeakIntensity: 1.0, // 强调色强度 (0-2)
+    uLightMode: 0, // 浅色模式 (0=深色, 1=浅色)，切换流星波纹的墨色
   },
   // vertex shader
   `
     uniform float uTime;
     uniform float uIdleWave;
-    uniform float uAudioIntensity;
+    uniform float uCentralIntensity;
+    uniform float uRingIntensity;
+    uniform float uFlowIntensity;
+    uniform float uRiverIntensity;
+    uniform float uSpikeIntensity;
     uniform float uResponseRange;
     uniform float uHalfExtent;
 
@@ -146,7 +156,7 @@ export const MapShaderMaterial = shaderMaterial(
 
       // Sub-Bass: Center heavy, ultra slow rolling hills, massive block lifts
       float subRegion = smoothstep(uHalfExtent * 0.30 * range, 0.0, centerDist);
-      float subLift = easeLift(uSubBass, 6.0) * subRegion;
+      float subLift = easeLift(uSubBass, 6.0) * subRegion * uCentralIntensity;
       
       // 峰值强度：基于 subLift 高度，归一化到 0-1
       // subLift 最大值为 6.0，所以除以 6.0 归一化
@@ -156,33 +166,33 @@ export const MapShaderMaterial = shaderMaterial(
       float bassNoise = snoise(pos2D * 0.1 - vec2(0.0, uTime * 0.2));
       float bassRegion = smoothstep(uHalfExtent * 0.42 * range, uHalfExtent * 0.06 * range, centerDist + bassNoise * 5.0);
       float bassRnd = smoothstep(0.0, 1.0, rnd + uDensity * 0.5);
-      float bassLift = easeLift(uBass, 5.0) * bassRegion * bassRnd;
+      float bassLift = easeLift(uBass, 5.0) * bassRegion * bassRnd * uRingIntensity;
 
       // Low Mid: Flowing waves across the whole map slowly
       float lowMidNoise = snoise(pos2D * 0.05 + vec2(uTime * 0.1, 0.0));
-      float lowMidLift = flowLift(uLowMid, 3.0) * (lowMidNoise * 0.5 + 0.5);
+      float lowMidLift = flowLift(uLowMid, 3.0) * (lowMidNoise * 0.5 + 0.5) * uFlowIntensity;
 
       // Mid: River-like current. Strong diagonal flow.
       float riverFlow = sin(pos2D.x * 0.2 + pos2D.y * 0.2 + snoise(pos2D * 0.1) * 2.0 - uTime * 2.0);
-      float midLift = flowLift(uMid, 4.0) * max(0.0, riverFlow);
+      float midLift = flowLift(uMid, 4.0) * max(0.0, riverFlow) * uRiverIntensity;
 
       // High Mid: Individual scattered spikes, highly dependent on column random
       float highMidRegion = smoothstep(uHalfExtent * 0.12 * range, uHalfExtent * 0.54 * range, centerDist);
       float highMidLift = 0.0;
       if (fract(rnd * 13.3) > 0.8) {
           float hmRaw = easeLift(uHighMid, 3.0);
-          highMidLift = hmRaw * highMidRegion * fract(rnd * 7.7);
+          highMidLift = hmRaw * highMidRegion * fract(rnd * 7.7) * uSpikeIntensity;
       }
 
-      // Combine and apply intensity multiplier
-      float audioElevation = (subLift + bassLift + lowMidLift + midLift + highMidLift) * uAudioIntensity;
+      // Combine independent per-channel lifts (each already scaled by its own intensity)
+      float audioElevation = subLift + bassLift + lowMidLift + midLift + highMidLift;
 
       // Energy Spike with elastic bounce
       if (rnd > 0.99) {
           float energyRaw = clamp(uEnergy, 0.0, 1.0);
           float energyBounce = 1.0 - pow(1.0 - energyRaw, 1.5);
           energyBounce += sin(energyRaw * 6.283 * 2.0) * exp(-energyRaw * 5.0) * 0.2;
-          audioElevation += energyBounce * 6.0 * uAudioIntensity;
+          audioElevation += energyBounce * 6.0 * uSpikeIntensity;
       }
 
       audioElevation *= globalFalloff;
@@ -304,6 +314,7 @@ export const MapShaderMaterial = shaderMaterial(
     uniform float uGlowIntensity;
     uniform float uPeakEnabled; // 强调色开关
     uniform float uPeakIntensity; // 强调色强度
+    uniform float uLightMode; // 浅色模式
 
     varying vec2 vUv;
     varying float vElevation;
@@ -319,6 +330,9 @@ export const MapShaderMaterial = shaderMaterial(
     }
 
     void main() {
+      // 流星波纹主色：深色模式亮白，浅色模式深灰，避免在白底上发白看不清
+      vec3 meteorRippleColor = mix(vec3(1.0, 1.0, 1.0), vec3(0.30, 0.30, 0.32), uLightMode);
+
       bool isTop = vNormal.y > 0.5;
       float distFromTop = 1.0 - vRelativeY;
       
@@ -359,7 +373,7 @@ export const MapShaderMaterial = shaderMaterial(
       float normalBlend = vRippleAnim.x * vRippleAnim.x;
       float whiteBlend = vRippleAnim.y * vRippleAnim.y;
       currentGlow = mix(currentGlow, uRippleColor, normalBlend * 0.85);
-      currentGlow = mix(currentGlow, vec3(1.0, 1.0, 1.0), whiteBlend * 0.9);
+      currentGlow = mix(currentGlow, meteorRippleColor, whiteBlend * 0.9);
       
       // Peak color - 中间凸起峰值颜色
       float peakBlend = pow(vPeakIntensity, 0.85) * uPeakEnabled * uPeakIntensity;
@@ -427,7 +441,8 @@ export const MapShaderMaterial = shaderMaterial(
       finalColor = mix(finalColor, uPeakColor, clamp(peakBlend * 0.15, 0.0, 1.0));
       
       finalColor += uRippleColor * normalBlend * 0.4;
-      finalColor += vec3(1.0, 1.0, 1.0) * whiteBlend * 0.7;
+      // 深色模式提亮、浅色模式压暗，同一表达式兼容两种模式
+      finalColor += (meteorRippleColor - vec3(0.5)) * whiteBlend * 1.4;
       
       // Aerial Perspective / Fog
       float aerialFog = smoothstep(30.0, 65.0, vDistance);

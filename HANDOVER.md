@@ -4,7 +4,7 @@
 
 **项目名称**：Sonic Topography（音域回响）
 **类型**：Wallpaper Engine 音频可视化动态壁纸
-**版本**：v15
+**版本**：v17
 
 一款基于音频驱动的 3D 地形可视化壁纸，配合 Wallpaper Engine 使用。160×160（可配置 80-1024）柱子网格随音乐起伏，带有波纹、流星、空闲波浪等效果。
 
@@ -123,24 +123,38 @@ if (i <= 81)   highMid      // 1935-3483 Hz
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| theme | combo | nocturnal | 颜色主题（10套 + 自动轮询） |
+| theme | combo | nocturnal | 颜色主题（16套 + 自动轮询） |
 | themeCycleInterval | slider | 60 | 轮询间隔（秒） |
-| gridSize | combo | 160 | 渲染精度（80-1024） |
-| audioIntensity | slider | 1 | 音频响应强度 |
+| lightMode | bool | false | 浅色模式：天空变浅、柱子无响应时变白、流星波纹转深灰 |
+| peakColorEnabled | bool | true | 强调色开关 |
+| peakColorIntensity | slider | 1 | 强调色强度 |
+| gridSize | combo | 160 | 渲染精度（120-4096） |
 | responseRange | slider | 1 | 响应范围 |
-| pulseEnabled | bool | true | 启用波纹 |
+| centralEnabled / centralIntensity | bool / slider | true / 1 | 中心隆起（超低频）开关与强度 |
+| ringEnabled / ringIntensity | bool / slider | true / 1 | 中部环形（低频）开关与强度 |
+| flowEnabled / flowIntensity | bool / slider | true / 1 | 全域流动（中低频）开关与强度 |
+| riverEnabled / riverIntensity | bool / slider | true / 1 | 河流对角线（中频）开关与强度 |
+| spikeEnabled / spikeIntensity | bool / slider | true / 1 | 高频尖刺（高频+能量突起）开关与强度 |
+| pulseEnabled / pulseIntensity | bool / slider | true / 1 | 启用波纹 / 波纹强度 |
 | pulseSensitivity | slider | 0.2 | 波纹灵敏度 |
-| meteorEnabled | bool | true | 启用流星 |
+| pulseCooldown | slider | 0 | 波纹冷却（帧） |
+| meteorEnabled / meteorIntensity | bool / slider | true / 1 | 启用流星 / 流星强度 |
 | meteorSensitivity | slider | 0.35 | 流星灵敏度 |
+| meteorCooldown | slider | 60 | 流星冷却（帧） |
+| meteorClickEnabled | bool | true | 点击触发流星 |
 | idleWaveEnabled | bool | true | 空闲波浪开关 |
 | idleWaveDebounce | slider | 1 | 空闲波浪防抖（秒） |
 | idleWaveFadeDuration | slider | 1 | 空闲波浪过渡（秒） |
 | cameraDistance | slider | 85 | 视角距离 |
 | cameraAngleX/Y | slider | 120/25 | 视角角度 |
-| autoRotateSpeed | slider | 0 | 自动旋转速度 |
-| peakColorEnabled | bool | true | 强调色开关 |
+| autoRotateEnabled | bool | false | 自动旋转开关 |
+| autoRotateSpeed | slider | 10 | 自动旋转速度 |
 | showPlayerController | bool | true | 播放器控制器显示 |
+| showAlbumCover | bool | true | 显示专辑封面 |
 | controllerSize | combo | large | 控制器尺寸 |
+| controllerX / controllerY | slider | 2 / 3 | 控制器位置（%） |
+
+> 全部外观项（主题、渲染精度、响应通道、空闲波浪）已并入「外观 / Appearance」分类；音频响应强度 `audioIntensity` 已移除，改为各响应通道独立强度。
 
 ---
 
@@ -195,5 +209,5 @@ pnpm run dev
 
 ---
 
-**交接日期**：2026-06-25
-**当前版本**：v15
+**交接日期**：2026-10-18
+**当前版本**：v17

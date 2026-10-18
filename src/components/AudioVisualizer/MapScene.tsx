@@ -4,7 +4,7 @@ import { useRef, useMemo, useCallback, useLayoutEffect, useEffect, forwardRef, u
 import { MapShaderMaterial } from './CustomShaderMaterial';
 import { engine } from '../../lib/AudioEngine';
 import { AudioData } from '../../types';
-import { themes, ThemeColors } from '../../lib/themes';
+import { themes, ThemeColors, lightSkyColor, lightBaseColor1, lightBaseColor2 } from '../../lib/themes';
 
 extend({ MapShaderMaterial });
 
@@ -12,7 +12,19 @@ interface MapSceneProps {
   theme?: string | ThemeColors; // 支持主题名或混合后的主题颜色对象
   cameraDistance?: number;
   idleWaveEnabled?: boolean;
-  audioIntensity?: number;
+  // 各响应通道的独立开关与强度
+  centralEnabled?: boolean; // 中心隆起（超低频）
+  centralIntensity?: number;
+  ringEnabled?: boolean; // 中部环形（低频）
+  ringIntensity?: number;
+  flowEnabled?: boolean; // 全域流动（中低频）
+  flowIntensity?: number;
+  riverEnabled?: boolean; // 河流对角线（中频）
+  riverIntensity?: number;
+  spikeEnabled?: boolean; // 高频尖刺（高频 + 能量突起）
+  spikeIntensity?: number;
+  rippleIntensity?: number; // 波纹强度倍率
+  meteorIntensity?: number; // 流星强度倍率
   responseRange?: number;
   cameraAngleX?: number;
   cameraAngleY?: number;
@@ -21,13 +33,14 @@ interface MapSceneProps {
   gridSize?: number;
   peakColorEnabled?: boolean; // 强调色开关
   peakColorIntensity?: number; // 强调色强度 (0-2)
+  lightMode?: boolean; // 浅色模式：天空变浅，柱子无响应时变白
 }
 
 export interface MapSceneHandle {
   triggerMeteorAt: (clientX: number, clientY: number) => void;
 }
 
-export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'nocturnal', cameraDistance = 50, idleWaveEnabled = true, audioIntensity = 1.0, responseRange = 1.0, cameraAngleX = 45, cameraAngleY = 30, autoRotateEnabled = false, autoRotateSpeed = 10, gridSize = 160, peakColorEnabled = true, peakColorIntensity = 1.0 }, ref) => {
+export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'nocturnal', cameraDistance = 50, idleWaveEnabled = true, responseRange = 1.0, centralEnabled = true, centralIntensity = 1.0, ringEnabled = true, ringIntensity = 1.0, flowEnabled = true, flowIntensity = 1.0, riverEnabled = true, riverIntensity = 1.0, spikeEnabled = true, spikeIntensity = 1.0, rippleIntensity = 1.0, meteorIntensity = 1.0, cameraAngleX = 45, cameraAngleY = 30, autoRotateEnabled = false, autoRotateSpeed = 10, gridSize = 160, peakColorEnabled = true, peakColorIntensity = 1.0, lightMode = false }, ref) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const materialRef = useRef<any>(null);
   const { clock, camera, gl } = useThree();
@@ -50,6 +63,13 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
     logicParamsRef.current.cameraAngleY = cameraAngleY;
     logicParamsRef.current.cameraDistance = cameraDistance;
   }, [autoRotateEnabled, autoRotateSpeed, cameraAngleY, cameraDistance]);
+
+  // 触发型效果（波纹/流星）的强度倍率，供触发器回调读取最新值
+  const triggerIntensityRef = useRef({ ripple: rippleIntensity, meteor: meteorIntensity });
+  useEffect(() => {
+    triggerIntensityRef.current.ripple = rippleIntensity;
+    triggerIntensityRef.current.meteor = meteorIntensity;
+  }, [rippleIntensity, meteorIntensity]);
 
   // 复用 Color 对象避免每帧 GC
   const _tempColor = useMemo(() => new THREE.Color(), []);
@@ -187,11 +207,12 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
   const PULSE_ANCHOR_EXPIRE_MS = 1500; // 超过此间隔则重新开始新簇计数
 
   // Wire up audio engine beat detection
-  // Strength is already scaled by engine's pulseStrength/meteorStrength config in evaluateTrigger
+  // Strength is already scaled by engine's pulseStrength/meteorStrength config in evaluateTrigger,
+  // 这里再乘以用户配置的波纹/流星强度倍率
   useEffect(() => {
     engine.onFreqTrigger = (strength, mode, action) => {
        if (action === 'Meteor') {
-          addMeteor(Math.min(strength * 20, 4.0));
+          addMeteor(Math.min(strength * 20, 4.0) * triggerIntensityRef.current.meteor);
        } else {
           const now = performance.now();
 
@@ -216,7 +237,7 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
              rx = Math.cos(angle) * dist;
              rz = Math.sin(angle) * dist;
           }
-          addRipple(rx, rz, Math.min(strength * 40, 8.0));
+          addRipple(rx, rz, Math.min(strength * 40, 8.0) * triggerIntensityRef.current.ripple);
        }
     };
   }, [theme]);
@@ -246,7 +267,7 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
         m.z = intersectionPoint.z;
         m.y = 30 + Math.random() * 10;
         m.speed = 1.0 + Math.random() * 0.5 + 2.5;
-        m.strength = 1.0;
+        m.strength = 1.0 * triggerIntensityRef.current.meteor;
 
         meteorIndex.current = (idx + 1) % MAX_METEORS;
       }
@@ -352,8 +373,13 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
     const isMixedTheme = typeof theme !== 'string';
     const lerpSpeed = isMixedTheme ? 1.0 : 0.05;
 
-    mat.uBaseColor1.lerp(t.uBaseColor1, lerpSpeed);
-    mat.uBaseColor2.lerp(t.uBaseColor2, lerpSpeed);
+    // 浅色模式下柱子基色与雾色替换为浅色目标，响应色仍跟随所选主题
+    const targetBase1 = lightMode ? lightBaseColor1 : t.uBaseColor1;
+    const targetBase2 = lightMode ? lightBaseColor2 : t.uBaseColor2;
+    const targetSky = lightMode ? lightSkyColor : t.uBaseColor1;
+
+    mat.uBaseColor1.lerp(targetBase1, lerpSpeed);
+    mat.uBaseColor2.lerp(targetBase2, lerpSpeed);
     mat.uCoolCore.lerp(t.uCoolCore, lerpSpeed);
     mat.uCoolEdge.lerp(t.uCoolEdge, lerpSpeed);
     mat.uWarmCore.lerp(t.uWarmCore, lerpSpeed);
@@ -363,9 +389,11 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
     mat.uGlowIntensity = THREE.MathUtils.lerp(mat.uGlowIntensity, t.uGlowIntensity, lerpSpeed);
     mat.uPeakEnabled = peakColorEnabled ? 1.0 : 0.0;
     mat.uPeakIntensity = peakColorIntensity;
+    // 浅色模式平滑过渡，用于切换流星波纹的墨色
+    mat.uLightMode = THREE.MathUtils.lerp(mat.uLightMode, lightMode ? 1.0 : 0.0, lerpSpeed);
 
     if (fogRef.current) {
-        fogRef.current.color.lerp(t.uBaseColor1, lerpSpeed);
+        fogRef.current.color.lerp(targetSky, lerpSpeed);
     }
 
     mat.uTime = state.clock.getElapsedTime();
@@ -385,7 +413,12 @@ export const MapScene = forwardRef<MapSceneHandle, MapSceneProps>(({ theme = 'no
     mat.uSmoothness = data.smoothness;
     mat.uDensity = data.density;
     mat.uSpectralCentroid = data.spectralCentroid;
-    mat.uAudioIntensity = audioIntensity;
+    // 各响应通道强度，关闭时置 0
+    mat.uCentralIntensity = centralEnabled ? centralIntensity : 0.0;
+    mat.uRingIntensity = ringEnabled ? ringIntensity : 0.0;
+    mat.uFlowIntensity = flowEnabled ? flowIntensity : 0.0;
+    mat.uRiverIntensity = riverEnabled ? riverIntensity : 0.0;
+    mat.uSpikeIntensity = spikeEnabled ? spikeIntensity : 0.0;
     mat.uResponseRange = responseRange;
     mat.uRipples = ripplesRef.current;
     mat.uIdleWave = idleWaveEnabled ? buf.idleIntensity : 0.0;

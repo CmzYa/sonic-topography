@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { Canvas, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { MapScene } from '../src/components/AudioVisualizer/MapScene';
-import { themes, themeIds, lerpThemes, ThemeColors } from '../src/lib/themes';
+import { themes, themeIds, lerpThemes, ThemeColors, lightSkyColor } from '../src/lib/themes';
 import { engine } from '../src/lib/AudioEngine';
 import '../src/index.css';
 
@@ -95,12 +95,25 @@ function WallpaperApp() {
   const [controllerSize, setControllerSize] = useState<'small' | 'medium' | 'large'>('large');
   const [controllerX, setControllerX] = useState(2); // 控制器水平位置 (%)
   const [controllerY, setControllerY] = useState(3); // 控制器垂直位置 (%)
-  const [audioIntensity, setAudioIntensity] = useState(1);
+  // 各响应通道的开关与独立强度
+  const [centralEnabled, setCentralEnabled] = useState(true);
+  const [centralIntensity, setCentralIntensity] = useState(1);
+  const [ringEnabled, setRingEnabled] = useState(true);
+  const [ringIntensity, setRingIntensity] = useState(1);
+  const [flowEnabled, setFlowEnabled] = useState(true);
+  const [flowIntensity, setFlowIntensity] = useState(1);
+  const [riverEnabled, setRiverEnabled] = useState(true);
+  const [riverIntensity, setRiverIntensity] = useState(1);
+  const [spikeEnabled, setSpikeEnabled] = useState(true);
+  const [spikeIntensity, setSpikeIntensity] = useState(1);
+  const [rippleIntensity, setRippleIntensity] = useState(1);
+  const [meteorIntensity, setMeteorIntensity] = useState(1);
   const [responseRange, setResponseRange] = useState(1);
   const [gridSize, setGridSize] = useState(160);
   const [meteorClickEnabled, setMeteorClickEnabled] = useState(true);
   const [peakColorEnabled, setPeakColorEnabled] = useState(true); // 强调色开关
   const [peakColorIntensity, setPeakColorIntensity] = useState(1.0); // 强调色强度
+  const [lightMode, setLightMode] = useState(false); // 浅色模式：天空变浅，柱子无响应变白
   const [themeCycleInterval, setThemeCycleInterval] = useState(60); // 默认60秒
   const mapSceneRef = useRef<any>(null);
   
@@ -160,7 +173,16 @@ const [mediaDuration, setMediaDuration] = useState(initialMedia.duration);
   }, [themeMode, cycleProgress]);
 
   const t = currentTheme;
-  const bgColor = `#${t.uBaseColor1.getHexString()}`;
+  /* 深色模式背景对齐着色器里的远景雾色 mix(cBase1, cBase2, 0.4)。
+     着色器片元是直接输出、不做色彩编码的，所以这里也按线性值取 hex，
+     否则地面方块边缘会与页面背景之间露出明显的色带 */
+  const darkSkyColor = useMemo(
+    () => new THREE.Color().lerpColors(t.uBaseColor1, t.uBaseColor2, 0.4),
+    [t],
+  );
+  const bgColor = lightMode
+    ? `#${lightSkyColor.getHexString()}`
+    : `#${darkSkyColor.getHexString(THREE.LinearSRGBColorSpace)}`;
   const accentColor = `#${t.uRippleColor.getHexString()}`;
 
   /* applyUserProperties 回调 - Wallpaper Engine 配置项变更 */
@@ -225,8 +247,41 @@ const [mediaDuration, setMediaDuration] = useState(initialMedia.duration);
     if (properties.controllerY?.value !== undefined) {
       setControllerY(properties.controllerY.value as number);
     }
-    if (properties.audioIntensity?.value !== undefined) {
-      setAudioIntensity(properties.audioIntensity.value as number);
+    if (properties.centralEnabled?.value !== undefined) {
+      setCentralEnabled(properties.centralEnabled.value as boolean);
+    }
+    if (properties.centralIntensity?.value !== undefined) {
+      setCentralIntensity(properties.centralIntensity.value as number);
+    }
+    if (properties.ringEnabled?.value !== undefined) {
+      setRingEnabled(properties.ringEnabled.value as boolean);
+    }
+    if (properties.ringIntensity?.value !== undefined) {
+      setRingIntensity(properties.ringIntensity.value as number);
+    }
+    if (properties.flowEnabled?.value !== undefined) {
+      setFlowEnabled(properties.flowEnabled.value as boolean);
+    }
+    if (properties.flowIntensity?.value !== undefined) {
+      setFlowIntensity(properties.flowIntensity.value as number);
+    }
+    if (properties.riverEnabled?.value !== undefined) {
+      setRiverEnabled(properties.riverEnabled.value as boolean);
+    }
+    if (properties.riverIntensity?.value !== undefined) {
+      setRiverIntensity(properties.riverIntensity.value as number);
+    }
+    if (properties.spikeEnabled?.value !== undefined) {
+      setSpikeEnabled(properties.spikeEnabled.value as boolean);
+    }
+    if (properties.spikeIntensity?.value !== undefined) {
+      setSpikeIntensity(properties.spikeIntensity.value as number);
+    }
+    if (properties.pulseIntensity?.value !== undefined) {
+      setRippleIntensity(properties.pulseIntensity.value as number);
+    }
+    if (properties.meteorIntensity?.value !== undefined) {
+      setMeteorIntensity(properties.meteorIntensity.value as number);
     }
     if (properties.responseRange?.value !== undefined) {
       setResponseRange(properties.responseRange.value as number);
@@ -242,6 +297,9 @@ const [mediaDuration, setMediaDuration] = useState(initialMedia.duration);
     }
     if (properties.peakColorIntensity?.value !== undefined) {
       setPeakColorIntensity(properties.peakColorIntensity.value as number);
+    }
+    if (properties.lightMode?.value !== undefined) {
+      setLightMode(properties.lightMode.value as boolean);
     }
     if (properties.themeCycleInterval?.value !== undefined) {
       setThemeCycleInterval(properties.themeCycleInterval.value as number);
@@ -404,14 +462,29 @@ const [mediaDuration, setMediaDuration] = useState(initialMedia.duration);
   }[controllerSize];
 
   return (
-    <div className="w-screen h-screen overflow-hidden" style={{ backgroundColor: bgColor }} onClick={handleRootClick}>
+    <div
+      className="w-screen h-screen overflow-hidden"
+      style={{ backgroundColor: bgColor, transition: 'background-color 800ms ease' }}
+      onClick={handleRootClick}
+    >
       <div className="absolute inset-0 z-0">
         <Canvas camera={{ position: [35, 25, 35], fov: 45 }} frameloop="demand">
           <FPSLimiter fpsLimit={fpsLimit} />
           <MapScene
             ref={mapSceneRef}
             theme={currentTheme}
-            audioIntensity={audioIntensity}
+            centralEnabled={centralEnabled}
+            centralIntensity={centralIntensity}
+            ringEnabled={ringEnabled}
+            ringIntensity={ringIntensity}
+            flowEnabled={flowEnabled}
+            flowIntensity={flowIntensity}
+            riverEnabled={riverEnabled}
+            riverIntensity={riverIntensity}
+            spikeEnabled={spikeEnabled}
+            spikeIntensity={spikeIntensity}
+            rippleIntensity={rippleIntensity}
+            meteorIntensity={meteorIntensity}
             responseRange={responseRange}
             gridSize={gridSize}
             idleWaveEnabled={idleWaveEnabled}
@@ -422,6 +495,7 @@ const [mediaDuration, setMediaDuration] = useState(initialMedia.duration);
             autoRotateSpeed={autoRotateSpeed}
             peakColorEnabled={peakColorEnabled}
             peakColorIntensity={peakColorIntensity}
+            lightMode={lightMode}
           />
         </Canvas>
       </div>
